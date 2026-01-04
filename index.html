@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Diana - Sistema Master</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
+
+        body, html {
+            margin: 0; padding: 0; overflow: hidden;
+            background-color: #000; font-family: 'Orbitron', sans-serif;
+            color: #00c8ff; transition: background 0.5s;
+        }
+
+        /* WEBCAM */
+        #webcam {
+            position: fixed; top: 0; left: 0;
+            width: 100%; height: 100%; object-fit: cover;
+            z-index: -1; filter: brightness(0.4) contrast(1.2);
+        }
+
+        /* SCANNER BIOMÉTRICO */
+        #biometric-scanner {
+            position: fixed; top: -10px; left: 0; width: 100%; height: 5px;
+            background: #00c8ff; box-shadow: 0 0 20px #00c8ff;
+            z-index: 100; display: none;
+        }
+
+        #face-reticle {
+            position: fixed; top: 50%; left: 50%; width: 250px; height: 250px;
+            border: 2px solid #00c8ff; transform: translate(-50%, -50%);
+            display: none; z-index: 99; transition: border-color 0.5s;
+        }
+
+        /* HUD CENTRAL */
+        .jarvis-container {
+            position: relative; width: 100vw; height: 100vh;
+            display: flex; justify-content: center; align-items: center;
+            perspective: 1000px;
+        }
+
+        .ring {
+            position: absolute; border-radius: 50%;
+            border: 2px solid rgba(0, 200, 255, 0.5);
+            transition: all 0.8s ease;
+        }
+
+        .outer { width: 380px; height: 380px; border-style: dashed; animation: rot 20s linear infinite; }
+        .middle { width: 300px; height: 300px; border: 4px double rgba(0, 200, 255, 0.7); animation: rot-rev 12s linear infinite; }
+        .inner { width: 200px; height: 200px; border-style: dotted; animation: rot 6s linear infinite; }
+
+        .core {
+            width: 80px; height: 80px; border-radius: 50%;
+            background: radial-gradient(circle, #00c8ff 0%, #003264 100%);
+            box-shadow: 0 0 40px #00c8ff; z-index: 10; transition: all 0.5s;
+        }
+
+        /* PAINÉIS */
+        .info-panel {
+            position: absolute; padding: 15px;
+            background: rgba(0, 20, 40, 0.6);
+            border-left: 3px solid #00c8ff; font-size: 11px;
+            transition: all 0.5s ease; box-shadow: 0 0 10px rgba(0,200,255,0.2);
+        }
+
+        #status-panel { top: 50px; right: 50px; width: 200px; }
+        #news-panel { top: 50px; left: 50px; width: 250px; }
+        #map-panel { bottom: 50px; left: 50px; width: 220px; }
+
+        .visualizer { position: absolute; bottom: 50px; display: flex; gap: 4px; height: 60px; }
+        .bar { width: 5px; background: #00c8ff; transition: height 0.05s; }
+
+        /* MODO INTRUSO / ALERTA */
+        @keyframes alarme { 0%, 100% { background: rgba(0,0,0,1); } 50% { background: rgba(100,0,0,1); } }
+        .intruso-ativa { animation: alarme 0.5s infinite !important; }
+
+        @keyframes rot { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        @keyframes rot-rev { from { transform: rotate(360deg); } to { transform: rotate(0deg); } }
+        @keyframes scanMove { 0% { top: 0%; } 100% { top: 100%; } }
+
+        /* OVERLAY DE INICIALIZAÇÃO */
+        .init-overlay {
+            position: fixed; top:0; left:0; width:100%; height:100%;
+            background: rgba(0,0,0,0.95); z-index: 1000;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+        }
+
+        #init-btn {
+            padding: 20px 40px;
+            background: transparent;
+            border: 2px solid #00c8ff;
+            color: #00c8ff;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 18px;
+            letter-spacing: 5px;
+            cursor: pointer;
+            transition: 0.3s;
+            box-shadow: 0 0 15px #00c8ff;
+        }
+
+        #init-btn:hover {
+            background: #00c8ff;
+            color: #000;
+            box-shadow: 0 0 30px #00c8ff;
+        }
+    </style>
+</head>
+<body>
+
+    <video id="webcam" autoplay playsinline></video>
+    <div id="biometric-scanner"></div>
+    <div id="face-reticle"></div>
+
+    <div class="init-overlay" id="start-screen">
+        <button id="init-btn">INICIALIZAR DIANA</button>
+    </div>
+
+    <div class="jarvis-container" id="hud">
+        <div class="ring outer"></div>
+        <div class="ring middle"></div>
+        <div class="ring inner"></div>
+        <div class="core" id="main-core"></div>
+
+        <div class="info-panel" id="status-panel">
+            <div>SISTEMA: <span id="status-txt">STANDBY</span></div>
+            <div id="cpu-load">CPU: 12%</div>
+            <div id="light-status" style="margin-top:10px; color:gray">LIGHTS: OFFLINE</div>
+        </div>
+
+        <div class="info-panel" id="news-panel">
+            <div style="border-bottom:1px solid #00c8ff; margin-bottom:8px">NEWS FEED</div>
+            <marquee id="news-txt">Aguardando dados...</marquee>
+        </div>
+
+        <div class="info-panel" id="map-panel">
+            <div>GEOLOCALIZAÇÃO</div>
+            <img id="static-map" style="width:100%; margin-top:8px; opacity:0.7">
+        </div>
+
+        <div class="visualizer" id="visualizer"></div>
+    </div>
+
+    <script>
+        const statusTxt = document.getElementById('status-txt');
+        const newsTxt = document.getElementById('news-txt');
+        const video = document.getElementById('webcam');
+        let timerAtivo = null;
+
+        // --- VOZ (CONFIGURADA COMO FEMININA) ---
+        function speak(t) {
+            window.speechSynthesis.cancel();
+            const u = new SpeechSynthesisUtterance(t);
+            const voices = window.speechSynthesis.getVoices();
+            // Tenta encontrar uma voz feminina em PT-BR
+            const femaleVoice = voices.find(v => v.lang.includes('pt') && (v.name.includes('Maria') || v.name.includes('Google') || v.name.includes('Heloisa')));
+            if (femaleVoice) u.voice = femaleVoice;
+            u.lang = 'pt-BR'; u.rate = 1.1; u.pitch = 1.1;
+            window.speechSynthesis.speak(u);
+        }
+
+        window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
+
+        // --- INICIALIZAÇÃO ---
+        document.getElementById('init-btn').onclick = function() {
+            document.getElementById('start-screen').style.display = 'none';
+            speak("Sistemas ativos. Diana online. Como posso ajudar, senhora?");
+            statusTxt.innerText = "ONLINE";
+            initWebcam();
+            initAudio();
+            startListening();
+        };
+
+        function initWebcam() {
+            navigator.mediaDevices.getUserMedia({ video: true }).then(s => video.srcObject = s).catch(e => console.log("Webcam negada"));
+            document.addEventListener('mousemove', (e) => {
+                const x = (window.innerWidth / 2 - e.pageX) / 45;
+                const y = (window.innerHeight / 2 - e.pageY) / 45;
+                document.getElementById('hud').style.transform = `rotateY(${x}deg) rotateX(${y}deg)`;
+            });
+        }
+
+        // --- RECONHECIMENTO DE VOZ ---
+        function startListening() {
+            const Speech = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!Speech) return alert("Navegador sem suporte a voz!");
+            const rec = new Speech();
+            rec.lang = 'pt-BR'; rec.continuous = true;
+
+            rec.onresult = (e) => {
+                const msg = e.results[e.results.length-1][0].transcript.toLowerCase().trim();
+                console.log("Diana ouviu:", msg);
+
+                if (msg.includes("diana")) {
+                    
+                    // 1. COMANDO PARAR / ABORTAR
+                    if (msg.includes("parar") || msg.includes("abortar") || msg.includes("cancelar")) {
+                        speak("Protocolos interrompidos. Limpando interface.");
+                        resetAll();
+                    }
+                    // 2. MODO COMBATE
+                    else if (msg.includes("combate")) {
+                        speak("Protocolo de combate ativado.");
+                        setTheme("#ff0000", "radial-gradient(circle, #ff0000 0%, #440000 100%)");
+                    } 
+                    // 3. INTRUSO
+                    else if (msg.includes("intruso") || msg.includes("ameaça")) {
+                        speak("Ameaça detectada! Ativando segurança.");
+                        document.body.classList.add('intruso-ativa');
+                        setTheme("#ff0000", "#ff0000");
+                    }
+                    // 4. ESTUDO
+                    else if (msg.includes("modo de estudo") || msg.includes("foco")) {
+                        ativarEstudo();
+                    }
+                    // 5. MÚSICA
+                    else if (msg.includes("tocar música")) {
+                        speak("Iniciando playlist.");
+                        window.open('https://www.youtube.com/watch?v=jfKfPfyJRdk', '_blank');
+                    }
+                    // 6. PESQUISA
+                    else if (msg.includes("pesquise sobre") || msg.includes("o que é")) {
+                        let busca = msg.split("sobre").pop().split("é").pop();
+                        speak("Pesquisando dados.");
+                        window.open(`https://google.com/search?q=${busca}`, '_blank');
+                    }
+                    // 7. VARREDURA
+                    else if (msg.includes("varredura")) {
+                        runBiometria();
+                    }
+                    else {
+                        speak("Sim, senhora?");
+                    }
+                }
+            };
+
+            rec.onend = () => rec.start();
+            rec.start();
+        }
+
+        // --- FUNÇÕES DE SISTEMA ---
+        function setTheme(c, core) {
+            document.querySelectorAll('.ring, .info-panel, .bar').forEach(el => {
+                el.style.borderColor = c; el.style.color = c; el.style.boxShadow = `0 0 15px ${c}`;
+            });
+            document.getElementById('main-core').style.background = core;
+        }
+
+        function resetAll() {
+            document.body.classList.remove('intruso-ativa');
+            document.querySelectorAll('.ring').forEach(r => r.style.opacity = "1");
+            if(timerAtivo) clearInterval(timerAtivo);
+            setTheme("#00c8ff", "radial-gradient(circle, #00c8ff 0%, #003264 100%)");
+            statusTxt.innerText = "ONLINE";
+            const cam = document.getElementById('webcam');
+            cam.style.display = 'block';
+            document.body.style.backgroundImage = "none";
+        }
+
+        function ativarEstudo() {
+            speak("Modo de estudo iniciado.");
+            document.querySelector('.outer').style.opacity = "0.1";
+            document.querySelector('.middle').style.opacity = "0.1";
+            let tempo = 25 * 60;
+            timerAtivo = setInterval(() => {
+                let m = Math.floor(tempo/60), s = tempo%60;
+                statusTxt.innerText = `FOCO: ${m}:${s<10?'0'+s:s}`;
+                if(tempo-- <= 0) { clearInterval(timerAtivo); speak("Foco concluído."); resetAll(); }
+            }, 1000);
+        }
+
+        function runBiometria() {
+            const s = document.getElementById('biometric-scanner'), r = document.getElementById('face-reticle');
+            s.style.display = r.style.display = 'block';
+            s.style.animation = 'scanMove 2s infinite';
+            speak("Iniciando varredura biométrica.");
+            setTimeout(() => {
+                s.style.display = 'none'; r.style.borderColor = "#00ff00";
+                speak("Identidade confirmada.");
+                setTimeout(() => r.style.display = 'none', 2000);
+            }, 4000);
+        }
+
+        function initAudio() {
+            navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+                const ctx = new AudioContext(), ana = ctx.createAnalyser();
+                ctx.createMediaStreamSource(stream).connect(ana);
+                ana.fftSize = 32; const data = new Uint8Array(ana.frequencyBinCount);
+                const vis = document.getElementById('visualizer');
+                vis.innerHTML = '';
+                for(let i=0; i<16; i++) vis.appendChild(document.createElement('div')).className = 'bar';
+                const bars = document.querySelectorAll('.bar');
+                function draw() {
+                    ana.getByteFrequencyData(data);
+                    bars.forEach((b, i) => b.style.height = data[i]/2 + 'px');
+                    requestAnimationFrame(draw);
+                }
+                draw();
+            }).catch(e => console.log("Áudio negado"));
+        }
+    </script>
+</body>
+</html>
